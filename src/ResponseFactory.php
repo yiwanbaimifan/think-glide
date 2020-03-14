@@ -32,7 +32,7 @@ class ResponseFactory implements ResponseFactoryInterface
         $contentType = $cache->getMimetype($path);
         $contentLength = $cache->getSize($path);
 
-        $response = new Response();
+        $response = response();//new Response();
         $response->data(stream_get_contents($cache->readStream($path)))
             ->header([
                 'Content-Type' => $contentType,
