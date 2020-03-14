@@ -7,6 +7,9 @@
  *
  * This source file is subject to the MIT license that is bundled
  * with this source code in the file LICENSE.
+ * 
+ * 代码有修改 兼容tp6
+ * 代码 $request->path() 替换成 $request->pathinfo()
  */
 
 namespace Slince\Glide;
@@ -49,23 +52,27 @@ class GlideMiddleware
         $resolver->setRequired('source');
 
         $this->options = $resolver->resolve($options);
-
+        
         //如果启动安全校验，需要注入服务
         if ($this->options['signKey']) {
             $urlBuilder = UrlBuilderFactory::create($this->options['baseUrl'], $this->options['signKey']);
-            Container::set('glide.url_builder', $urlBuilder);
+            // 绑定实例
+            bind('glide.url_builder', $urlBuilder);
         }
     }
 
     public function __invoke(Request $request, $next)
     {
-        $uri = urldecode($request->app() . '/' . $request->path());
+        // 修改原来的错误代码
+        $uri = urldecode($request->pathinfo());
+        // 源代码
+        // $uri = urldecode( $request->app() . '/' . $request->path());
         parse_str($request->query(), $this->query);
-
-        if (!preg_match("#^{$this->options['baseUrl']}#", '/'.$uri)) {
+        
+        if (!preg_match("#^{$this->options['baseUrl']}#", '/'.$uri, $matches)) {
             return $next($request);
         }
-
+        
         $server = $this->createGlideServer();
         try {
             //检查安全签名
@@ -93,7 +100,7 @@ class GlideMiddleware
         $modifiedTime = null;
         if ($this->options['cacheTime']) {
             $modifiedTime = $server->getSource()
-                ->getTimestamp($server->getSourcePath($request->path()));
+                ->getTimestamp($server->getSourcePath($request->pathinfo()));
 
             $response = $this->applyModified($modifiedTime, $request);
             if (false !== $response) {
@@ -105,7 +112,7 @@ class GlideMiddleware
         if (null === $server->getResponseFactory()) {
             $server->setResponseFactory(new ResponseFactory());
         }
-        $response = $server->getImageResponse($request->path(), $this->query);
+        $response = $server->getImageResponse($request->pathinfo(), $this->query);
 
         return $this->applyCacheHeaders($response, $modifiedTime);
     }
@@ -134,8 +141,8 @@ class GlideMiddleware
     {
         //如果没有修改直接返回
         if ($this->isNotModified($request, $modifiedTime)) {
-            $response = new Response('', 304);
-
+            // $response = new Response('', 304);
+            $response = response('', 304);
             return $this->applyCacheHeaders($response, $modifiedTime);
         }
 
@@ -169,9 +176,18 @@ class GlideMiddleware
         if (!$this->options['signKey']) {
             return;
         }
+
+        // 去除多余的
+        $query = $this->query;
+        foreach ($query as $key => $value) {
+            if (!in_array($key, ['w', 'h', 'sign'])) {
+                unset($query[$key]);
+            }
+        }
+        
         SignatureFactory::create($this->options['signKey'])->validateRequest(
             $uri,
-            $this->query
+            $query
         );
     }
 
@@ -197,7 +213,7 @@ class GlideMiddleware
     public static function factory($options)
     {
         $middleware = new self($options);
-
+        
         return function(Request $request, $next) use ($middleware){
             return $middleware($request, $next);
         };
